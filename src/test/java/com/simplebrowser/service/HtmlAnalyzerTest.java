@@ -40,6 +40,8 @@ class HtmlAnalyzerTest {
             assertEquals(4, stats.getDivCount(), "Số lượng thẻ <div> phải là 4");
             assertEquals(6, stats.getSpanCount(), "Số lượng thẻ <span> phải là 6");
             assertEquals(3, stats.getImgCount(), "Số lượng thẻ <img> phải là 3 (chuẩn W3C)");
+            assertEquals(3, stats.getStandardImgCount());
+            assertEquals(0, stats.getCustomImagCount());
         }
     }
 
@@ -52,6 +54,8 @@ class HtmlAnalyzerTest {
         assertEquals(0, nullStats.getDivCount());
         assertEquals(0, nullStats.getSpanCount());
         assertEquals(0, nullStats.getImgCount());
+        assertEquals(0, nullStats.getStandardImgCount());
+        assertEquals(0, nullStats.getCustomImagCount());
 
         HtmlStats emptyStats = analyzer.analyze("");
         assertEquals(0, emptyStats.getHtmlLength());
@@ -59,6 +63,62 @@ class HtmlAnalyzerTest {
         assertEquals(0, emptyStats.getDivCount());
         assertEquals(0, emptyStats.getSpanCount());
         assertEquals(0, emptyStats.getImgCount());
+        assertEquals(0, emptyStats.getStandardImgCount());
+        assertEquals(0, emptyStats.getCustomImagCount());
+    }
+
+    @Test
+    @DisplayName("Kiểm tra phân tích HTML có cả thẻ <img> chuẩn W3C và thẻ <imag> theo đề bài")
+    void testAnalyzeBothImgAndImagTags() {
+        String htmlWithBoth = "<div>" +
+                "<p>Trang kiểm thử hình ảnh</p>" +
+                "<img src='standard.jpg' alt='W3C Image'/>" +
+                "<imag src='custom1.png' alt='Assignment Image 1'></imag>" +
+                "<imag src='custom2.png' alt='Assignment Image 2'/>" +
+                "<span>Chú thích ảnh</span>" +
+                "</div>";
+
+        HtmlStats stats = analyzer.analyze(htmlWithBoth);
+
+        assertEquals(htmlWithBoth.length(), stats.getHtmlLength());
+        assertEquals(1, stats.getPCount());
+        assertEquals(1, stats.getDivCount());
+        assertEquals(1, stats.getSpanCount());
+
+        // Kiểm tra chi tiết thẻ hình ảnh
+        assertEquals(1, stats.getStandardImgCount(), "Có 1 thẻ <img> chuẩn W3C");
+        assertEquals(2, stats.getCustomImagCount(), "Có 2 thẻ <imag> theo đề bài");
+        assertEquals(3, stats.getImgCount(), "Tổng số thẻ hình ảnh (img + imag) phải là 3");
+    }
+
+    @Test
+    @DisplayName("Kiểm tra phân tích văn bản thuần không có thẻ HTML nào")
+    void testAnalyzeHtmlWithoutTags() {
+        String plainText = "Đây là văn bản thuần túy không chứa bất kỳ thẻ HTML nào.";
+        HtmlStats stats = analyzer.analyze(plainText);
+
+        assertEquals(plainText.length(), stats.getHtmlLength());
+        assertEquals(0, stats.getPCount());
+        assertEquals(0, stats.getDivCount());
+        assertEquals(0, stats.getSpanCount());
+        assertEquals(0, stats.getImgCount());
+        assertEquals(0, stats.getStandardImgCount());
+        assertEquals(0, stats.getCustomImagCount());
+    }
+
+    @Test
+    @DisplayName("Kiểm tra phân tích chuỗi không phải HTML (chuỗi JSON)")
+    void testAnalyzeNonHtmlJsonString() {
+        String jsonString = "{\"name\": \"SimpleBrowser\", \"version\": \"1.0.0\", \"active\": true}";
+        HtmlStats stats = analyzer.analyze(jsonString);
+
+        // Chiều dài ký tự vẫn được tính cho chuỗi
+        assertEquals(jsonString.length(), stats.getHtmlLength());
+        // Số lượng thẻ phải bằng 0 vì JSON không có thẻ HTML
+        assertEquals(0, stats.getPCount());
+        assertEquals(0, stats.getDivCount());
+        assertEquals(0, stats.getSpanCount());
+        assertEquals(0, stats.getImgCount());
     }
 
     @Test

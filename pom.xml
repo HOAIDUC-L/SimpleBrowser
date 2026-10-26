@@ -20,9 +20,27 @@
         <jsoup.version>1.18.3</jsoup.version>
         <flatlaf.version>3.5.4</flatlaf.version>
         <junit.version>5.10.2</junit.version>
+        <javafx.version>21.0.4</javafx.version>
     </properties>
 
     <dependencies>
+        <!-- JavaFX: WebView, WebEngine, JFXPanel để nhúng vào Java Swing -->
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-controls</artifactId>
+            <version>${javafx.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-web</artifactId>
+            <version>${javafx.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-swing</artifactId>
+            <version>${javafx.version}</version>
+        </dependency>
+
         <!-- JSoup: Phân tích HTML theo chuẩn W3C -->
         <dependency>
             <groupId>org.jsoup</groupId>
@@ -35,6 +53,13 @@
             <groupId>com.formdev</groupId>
             <artifactId>flatlaf</artifactId>
             <version>${flatlaf.version}</version>
+        </dependency>
+
+        <!-- Gson: Lưu và đọc lịch sử duyệt web dạng file JSON -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.11.0</version>
         </dependency>
 
         <!-- JUnit 5: Kiểm thử đơn vị (Unit Testing) -->

@@ -19,6 +19,7 @@ public class HttpResponseData {
     private final boolean isHtml;
     private final HtmlStats htmlStats;
     private final String errorMessage;
+    private final String pageTitle;
 
     public HttpResponseData(String method,
                             String url,
@@ -31,6 +32,21 @@ public class HttpResponseData {
                             boolean isHtml,
                             HtmlStats htmlStats,
                             String errorMessage) {
+        this(method, url, statusCode, statusText, headers, body, executionTimeMs, contentType, isHtml, htmlStats, errorMessage, "");
+    }
+
+    public HttpResponseData(String method,
+                            String url,
+                            int statusCode,
+                            String statusText,
+                            Map<String, List<String>> headers,
+                            String body,
+                            long executionTimeMs,
+                            String contentType,
+                            boolean isHtml,
+                            HtmlStats htmlStats,
+                            String errorMessage,
+                            String pageTitle) {
         this.method = method;
         this.url = url;
         this.statusCode = statusCode;
@@ -42,6 +58,7 @@ public class HttpResponseData {
         this.isHtml = isHtml;
         this.htmlStats = htmlStats;
         this.errorMessage = errorMessage;
+        this.pageTitle = pageTitle != null ? pageTitle.trim() : "";
     }
 
     /**
@@ -59,7 +76,8 @@ public class HttpResponseData {
                 "",
                 false,
                 null,
-                errorMessage
+                errorMessage,
+                ""
         );
     }
 
@@ -109,6 +127,10 @@ public class HttpResponseData {
 
     public String getErrorMessage() {
         return errorMessage;
+    }
+
+    public String getPageTitle() {
+        return pageTitle != null ? pageTitle : "";
     }
 
     /**

@@ -1,7 +1,13 @@
 package com.simplebrowser.ui;
 
+import com.simplebrowser.model.DownloadItem;
+import com.simplebrowser.model.HistoryItem;
 import com.simplebrowser.model.HtmlStats;
 import com.simplebrowser.model.HttpResponseData;
+import com.simplebrowser.service.DemoServer;
+import com.simplebrowser.service.DownloadListener;
+import com.simplebrowser.service.DownloadService;
+import com.simplebrowser.service.HistoryService;
 import com.simplebrowser.service.HttpRequestService;
 import com.simplebrowser.util.UrlValidator;
 
@@ -15,21 +21,44 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ItemEvent;
-import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.io.File;
+import java.nio.file.Path;
 import java.text.NumberFormat;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
 /**
  * Giao diện chính của Simple Web Browser xây dựng bằng Java Swing.
- * Tích hợp đầy đủ các tính năng: GET/POST/HEAD, thống kê thẻ HTML, quản lý headers và xử lý nền SwingWorker.
+ * Tích hợp đầy đủ:
+ * - GET / POST / HEAD
+ * - Điều hướng: Back (◀), Forward (▶), Reload (🔄), Trang Mẫu (🏠), Download (⬇)
+ * - Quản lý lịch sử duyệt web (History) tự động lưu file JSON
+ * - Trình quản lý tải tệp tin (File Downloader) chạy nền kèm thanh tiến trình
+ * - Web Preview (HTML5, CSS3, JavaScript) sử dụng JavaFX WebView qua JFXPanel
+ * - Thống kê thẻ HTML (<p>, <div>, <span>, <img>, <imag>) bằng JSoup
+ * - Đa luồng SwingWorker chống treo giao diện
  */
 public class BrowserFrame extends JFrame {
 
     private final HttpRequestService requestService;
+    private final HistoryService historyService;
+    private final DownloadService downloadService;
+    private final DemoServer demoServer;
 
-    // Controls trên thanh nhập liệu
+    // Trạng thái điều hướng
+    private String currentActiveUrl = "";
+    private boolean isNavigatingHistory = false;
+
+    // Controls trên thanh điều hướng & nhập liệu
+    private JButton backButton;
+    private JButton forwardButton;
+    private JButton reloadButton;
+    private JButton demoButton;
+    private JButton downloadQuickButton;
     private JComboBox<String> methodComboBox;
     private JTextField urlTextField;
     private JButton sendButton;
@@ -50,6 +79,7 @@ public class BrowserFrame extends JFrame {
 
     // Tabs hiển thị kết quả
     private JTabbedPane tabbedPane;
+    private JavaFxWebBrowserPanel webBrowserPanel;
     private JTextArea responseBodyTextArea;
     private JTable headersTable;
     private DefaultTableModel headersTableModel;
@@ -61,31 +91,59 @@ public class BrowserFrame extends JFrame {
     private JLabel statsDivValue;
     private JLabel statsSpanValue;
     private JLabel statsImgValue;
+    private JLabel statsImgSubLabel;
     private JLabel statsStatusNotice;
+
+    // Tab Lịch sử (History)
+    private JTable historyTable;
+    private DefaultTableModel historyTableModel;
+
+    // Tab Tải xuống (Downloads)
+    private JTable downloadsTable;
+    private DefaultTableModel downloadsTableModel;
 
     // Tab Raw / Error Details
     private JTextArea errorDetailsTextArea;
 
     public BrowserFrame() {
-        this(new HttpRequestService());
+        this(new HttpRequestService(), new HistoryService(), new DemoServer());
     }
 
-    public BrowserFrame(HttpRequestService requestService) {
+    public BrowserFrame(HttpRequestService requestService, HistoryService historyService) {
+        this(requestService, historyService, new DemoServer());
+    }
+
+    public BrowserFrame(HttpRequestService requestService, HistoryService historyService, DemoServer demoServer) {
         this.requestService = requestService;
+        this.historyService = historyService;
+        this.downloadService = requestService.getDownloadService();
+        this.demoServer = demoServer;
+        if (this.demoServer != null) {
+            this.demoServer.start();
+        }
         initUI();
     }
 
     private void initUI() {
-        setTitle("Simple Web Browser – Nhóm 1 (HTTP Client & HTML Analyzer)");
-        setSize(1000, 750);
-        setMinimumSize(new Dimension(850, 600));
+        setTitle("Simple Web Browser – Nhóm 1 (HTTP Client, History & File Downloader)");
+        setSize(1120, 800);
+        setMinimumSize(new Dimension(920, 640));
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent e) {
+                if (demoServer != null) {
+                    demoServer.stop();
+                }
+            }
+        });
 
         JPanel mainContainer = new JPanel(new BorderLayout(8, 8));
         mainContainer.setBorder(new EmptyBorder(12, 12, 12, 12));
 
-        // 1. Top Panel: URL + Method + POST Body
+        // 1. Top Panel: Navigation Bar + URL + Method + POST Body + Status Alert
         JPanel topContainer = new JPanel(new BorderLayout(6, 6));
         topContainer.add(createUrlBarPanel(), BorderLayout.NORTH);
         topContainer.add(createPostBodyPanel(), BorderLayout.CENTER);
@@ -93,54 +151,96 @@ public class BrowserFrame extends JFrame {
 
         mainContainer.add(topContainer, BorderLayout.NORTH);
 
-        // 2. Center Panel: Tabs kết quả (Body, Headers, Thống kê HTML, Chi tiết lỗi)
+        // 2. Center Panel: Các Tabs kết quả (Preview, Body, Headers, Thống kê, Lịch sử, Tải xuống, Logs)
         mainContainer.add(createTabsPanel(), BorderLayout.CENTER);
 
         setContentPane(mainContainer);
 
-        // Trạng thái ban đầu
+        // Nạp dữ liệu ban đầu
         updateMethodUiState();
+        updateNavigationButtons();
+        refreshHistoryTable();
+        refreshDownloadsTable();
         clearResults();
     }
 
     /**
-     * Tạo thanh nhập URL, lựa chọn Method và nút Send Request.
+     * Tạo thanh điều hướng (Back, Forward, Reload, Download), ComboBox Method, URL TextField và nút Send.
      */
     private JPanel createUrlBarPanel() {
-        JPanel panel = new JPanel(new BorderLayout(8, 0));
+        JPanel panel = new JPanel(new BorderLayout(6, 0));
+
+        // Nhóm nút điều hướng bên trái
+        JPanel navGroup = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+
+        backButton = new JButton("◀");
+        backButton.setToolTipText("Quay lại trang trước (Back)");
+        backButton.setPreferredSize(new Dimension(36, 36));
+        backButton.setFont(new Font("SansSerif", Font.BOLD, 13));
+        backButton.setEnabled(false);
+        backButton.addActionListener(e -> onBack());
+
+        forwardButton = new JButton("▶");
+        forwardButton.setToolTipText("Tiến tới trang sau (Forward)");
+        forwardButton.setPreferredSize(new Dimension(36, 36));
+        forwardButton.setFont(new Font("SansSerif", Font.BOLD, 13));
+        forwardButton.setEnabled(false);
+        forwardButton.addActionListener(e -> onForward());
+
+        reloadButton = new JButton("🔄");
+        reloadButton.setToolTipText("Tải lại trang hiện tại (Reload)");
+        reloadButton.setPreferredSize(new Dimension(36, 36));
+        reloadButton.setFont(new Font("SansSerif", Font.BOLD, 13));
+        reloadButton.addActionListener(e -> onReload());
+
+        demoButton = new JButton("🏠 Trang Mẫu");
+        demoButton.setToolTipText("Mở trang web mẫu tích hợp sẵn để kiểm thử duyệt web và tải file");
+        demoButton.setPreferredSize(new Dimension(110, 36));
+        demoButton.setFont(new Font("SansSerif", Font.BOLD, 11));
+        demoButton.addActionListener(e -> onOpenDemoPage());
+
+        downloadQuickButton = new JButton("⬇ Tải về");
+        downloadQuickButton.setToolTipText("Tải tài nguyên tại URL này về máy");
+        downloadQuickButton.setPreferredSize(new Dimension(88, 36));
+        downloadQuickButton.setFont(new Font("SansSerif", Font.BOLD, 11));
+        downloadQuickButton.addActionListener(e -> onDownloadCurrentUrl());
 
         // ComboBox Method: GET, POST, HEAD
         String[] methods = {"GET", "POST", "HEAD"};
         methodComboBox = new JComboBox<>(methods);
-        methodComboBox.setFont(new Font("SansSerif", Font.BOLD, 13));
-        methodComboBox.setPreferredSize(new Dimension(95, 36));
+        methodComboBox.setFont(new Font("SansSerif", Font.BOLD, 12));
+        methodComboBox.setPreferredSize(new Dimension(85, 36));
         methodComboBox.addItemListener(e -> {
             if (e.getStateChange() == ItemEvent.SELECTED) {
                 updateMethodUiState();
             }
         });
 
-        // URL Input Field
-        urlTextField = new JTextField("https://example.com");
-        urlTextField.setFont(new Font("SansSerif", Font.PLAIN, 14));
-        urlTextField.setPreferredSize(new Dimension(400, 36));
-        urlTextField.setToolTipText("Nhập URL (ví dụ: https://example.com hoặc example.com)");
+        navGroup.add(backButton);
+        navGroup.add(forwardButton);
+        navGroup.add(reloadButton);
+        navGroup.add(demoButton);
+        navGroup.add(downloadQuickButton);
+        navGroup.add(new JSeparator(SwingConstants.VERTICAL));
+        navGroup.add(new JLabel("Method: "));
+        navGroup.add(methodComboBox);
 
-        // Nhấn phím Enter trong ô URL để gửi request
+        // URL Input Field (Mặc định mở ngay trang web mẫu tích hợp)
+        String defaultUrl = (demoServer != null) ? demoServer.getDemoUrl() : "https://example.com";
+        urlTextField = new JTextField(defaultUrl);
+        urlTextField.setFont(new Font("SansSerif", Font.PLAIN, 14));
+        urlTextField.setPreferredSize(new Dimension(380, 36));
+        urlTextField.setToolTipText("Nhập URL (ví dụ: " + defaultUrl + " hoặc https://www.google.com)");
         urlTextField.addActionListener(e -> onSendRequest());
 
         // Nút Send Request
         sendButton = new JButton("Send Request");
         sendButton.setFont(new Font("SansSerif", Font.BOLD, 13));
-        sendButton.setPreferredSize(new Dimension(140, 36));
+        sendButton.setPreferredSize(new Dimension(135, 36));
         sendButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
         sendButton.addActionListener(e -> onSendRequest());
 
-        JPanel leftGroup = new JPanel(new BorderLayout(6, 0));
-        leftGroup.add(new JLabel("Method: "), BorderLayout.WEST);
-        leftGroup.add(methodComboBox, BorderLayout.CENTER);
-
-        panel.add(leftGroup, BorderLayout.WEST);
+        panel.add(navGroup, BorderLayout.WEST);
         panel.add(urlTextField, BorderLayout.CENTER);
         panel.add(sendButton, BorderLayout.EAST);
 
@@ -225,7 +325,7 @@ public class BrowserFrame extends JFrame {
         errorAlertLabel.setForeground(new Color(176, 0, 32));
 
         JButton dismissErrorBtn = new JButton("✕");
-        dismissErrorBtn.setMargin(new java.awt.Insets(0, 4, 0, 4));
+        dismissErrorBtn.setMargin(new Insets(0, 4, 0, 4));
         dismissErrorBtn.addActionListener(e -> errorAlertPanel.setVisible(false));
 
         errorAlertPanel.add(errorAlertLabel, BorderLayout.CENTER);
@@ -238,22 +338,65 @@ public class BrowserFrame extends JFrame {
     }
 
     /**
-     * Tạo khu vực Tab hiển thị kết quả (Response Body, Headers, HTML Statistics, Logs).
+     * Tạo khu vực Tab hiển thị kết quả.
      */
     private JTabbedPane createTabsPanel() {
         tabbedPane = new JTabbedPane();
         tabbedPane.setFont(new Font("SansSerif", Font.BOLD, 12));
 
+        tabbedPane.addTab("Web Preview (HTML Render)", createWebPreviewTab());
         tabbedPane.addTab("Response Body", createBodyTab());
         tabbedPane.addTab("Response Headers", createHeadersTab());
         tabbedPane.addTab("HTML Statistics", createHtmlStatsTab());
+        tabbedPane.addTab("Lịch sử (History)", createHistoryTab());
+        tabbedPane.addTab("Tải xuống (Downloads)", createDownloadsTab());
         tabbedPane.addTab("Error / Diagnostics", createDiagnosticsTab());
 
         return tabbedPane;
     }
 
     /**
-     * Tab 1: Response Body (JTextArea kèm toolbar Copy, Word Wrap).
+     * Tab 1: Web Preview (HTML Render bằng JavaFX WebView qua JFXPanel).
+     * Hỗ trợ render đầy đủ HTML5, CSS3, JavaScript tương tự Google Chrome / Cốc Cốc.
+     */
+    private JPanel createWebPreviewTab() {
+        JPanel panel = new JPanel(new BorderLayout());
+        webBrowserPanel = new JavaFxWebBrowserPanel();
+
+        // 1. Đồng bộ thanh địa chỉ khi người dùng click vào liên kết bên trong WebView
+        webBrowserPanel.setOnUrlChanged(newUrl -> {
+            urlTextField.setText(newUrl);
+        });
+
+        // 2. Cập nhật thanh tiến trình của Swing khi JavaFX WebView tải trang
+        webBrowserPanel.setOnProgressChanged(pct -> {
+            if (pct >= 1.0) {
+                progressBar.setVisible(false);
+            } else if (pct > 0.0) {
+                progressBar.setVisible(true);
+                progressBar.setIndeterminate(false);
+                progressBar.setValue((int) (pct * 100));
+            }
+        });
+
+        // 3. Cập nhật tiêu đề cửa sổ khi trang web thay đổi title
+        webBrowserPanel.setOnTitleChanged(title -> {
+            if (title != null && !title.isBlank()) {
+                setTitle(title + " – Simple Web Browser");
+            }
+        });
+
+        // 4. Bắt sự kiện tải tệp tin khi người dùng bấm nút tải xuống trên trang web
+        webBrowserPanel.setOnDownloadRequested((fileUrl, suggestedFileName) -> {
+            promptAndStartDownload(fileUrl, null, null);
+        });
+
+        panel.add(webBrowserPanel, BorderLayout.CENTER);
+        return panel;
+    }
+
+    /**
+     * Tab 2: Response Body.
      */
     private JPanel createBodyTab() {
         JPanel panel = new JPanel(new BorderLayout(4, 4));
@@ -266,7 +409,6 @@ public class BrowserFrame extends JFrame {
 
         JScrollPane scrollPane = new JScrollPane(responseBodyTextArea);
 
-        // Toolbar
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 2));
         JButton copyBtn = new JButton("Copy Body");
         copyBtn.addActionListener(e -> {
@@ -294,7 +436,7 @@ public class BrowserFrame extends JFrame {
     }
 
     /**
-     * Tab 2: Response Headers (JTable hiển thị cặp Header - Value).
+     * Tab 3: Response Headers.
      */
     private JPanel createHeadersTab() {
         JPanel panel = new JPanel(new BorderLayout(4, 4));
@@ -314,7 +456,6 @@ public class BrowserFrame extends JFrame {
         headersTable.getColumnModel().getColumn(0).setPreferredWidth(220);
         headersTable.getColumnModel().getColumn(1).setPreferredWidth(600);
 
-        // Custom renderer để highlight headers quan trọng
         DefaultTableCellRenderer renderer = new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
@@ -343,18 +484,16 @@ public class BrowserFrame extends JFrame {
     }
 
     /**
-     * Tab 3: HTML Statistics (Thẻ thống kê kích thước, <p>, <div>, <span>, <img>).
+     * Tab 4: HTML Statistics.
      */
     private JPanel createHtmlStatsTab() {
         htmlStatsContainer = new JPanel(new BorderLayout(10, 10));
         htmlStatsContainer.setBorder(new EmptyBorder(16, 16, 16, 16));
 
-        // Thông báo trạng thái thống kê
         statsStatusNotice = new JLabel("Chưa có dữ liệu thống kê. Vui lòng gửi request GET hoặc POST đến trang HTML.");
         statsStatusNotice.setFont(new Font("SansSerif", Font.ITALIC, 13));
         statsStatusNotice.setHorizontalAlignment(SwingConstants.CENTER);
 
-        // Panel chứa các thẻ đo lường (Metric Cards)
         JPanel cardsGrid = new JPanel(new GridLayout(2, 3, 14, 14));
 
         statsLengthValue = new JLabel("-");
@@ -363,13 +502,14 @@ public class BrowserFrame extends JFrame {
         statsSpanValue = new JLabel("-");
         statsImgValue = new JLabel("-");
 
-        cardsGrid.add(createMetricCard("HTML Length", statsLengthValue, "Tổng số ký tự của HTML body đã giải mã"));
-        cardsGrid.add(createMetricCard("Thẻ <p>", statsPValue, "Số lượng đoạn văn bản (<p>)"));
-        cardsGrid.add(createMetricCard("Thẻ <div>", statsDivValue, "Số lượng khối phân chia (<div>)"));
-        cardsGrid.add(createMetricCard("Thẻ <span>", statsSpanValue, "Số lượng thành phần nội dòng (<span>)"));
-        cardsGrid.add(createMetricCard("Thẻ <img>", statsImgValue, "Số lượng hình ảnh (chuẩn W3C <img> thay cho <imag>)"));
+        cardsGrid.add(createMetricCard("HTML Length", statsLengthValue, null, "Tổng số ký tự của HTML body đã giải mã"));
+        cardsGrid.add(createMetricCard("Thẻ <p>", statsPValue, null, "Số lượng đoạn văn bản (<p>)"));
+        cardsGrid.add(createMetricCard("Thẻ <div>", statsDivValue, null, "Số lượng khối phân chia (<div>)"));
+        cardsGrid.add(createMetricCard("Thẻ <span>", statsSpanValue, null, "Số lượng thành phần nội dòng (<span>)"));
 
-        // Thẻ ghi chú kỹ thuật W3C
+        statsImgSubLabel = new JLabel("<html><body style='width: 190px; color:#777; font-size:10px;'>Bao gồm cả thẻ &lt;img&gt; chuẩn và &lt;imag&gt;</body></html>");
+        cardsGrid.add(createMetricCard("Thẻ <img> / <imag>", statsImgValue, statsImgSubLabel, null));
+
         JPanel noteCard = new JPanel(new BorderLayout(4, 4));
         noteCard.setBorder(new CompoundBorder(
                 new LineBorder(new Color(220, 220, 220), 1, true),
@@ -380,7 +520,7 @@ public class BrowserFrame extends JFrame {
         noteTitle.setFont(new Font("SansSerif", Font.BOLD, 12));
         JLabel noteBody = new JLabel("<html><body style='font-size:10px; color:#555;'>" +
                 "• Sử dụng thư viện <b>JSoup</b> để parse DOM theo chuẩn W3C.<br>" +
-                "• Đề bài yêu cầu thẻ &lt;imag&gt;, chuẩn HTML chính thức là <b>&lt;img&gt;</b>.<br>" +
+                "• Đề bài yêu cầu thẻ &lt;imag&gt;, chuẩn W3C là <b>&lt;img&gt;</b> (hệ thống đếm và hỗ trợ cả 2).<br>" +
                 "• Chiều dài HTML tính bằng <b>ký tự (characters)</b>, phân biệt với số byte của Content-Length." +
                 "</body></html>");
         noteCard.add(noteTitle, BorderLayout.NORTH);
@@ -393,10 +533,7 @@ public class BrowserFrame extends JFrame {
         return htmlStatsContainer;
     }
 
-    /**
-     * Tạo một Card trực quan cho từng thông số trong Tab HTML Statistics.
-     */
-    private JPanel createMetricCard(String title, JLabel valueLabel, String subtitle) {
+    private JPanel createMetricCard(String title, JLabel valueLabel, JLabel customSubLabel, String subtitle) {
         JPanel card = new JPanel(new BorderLayout(6, 6));
         card.setBorder(new CompoundBorder(
                 new LineBorder(new Color(200, 215, 235), 1, true),
@@ -412,7 +549,8 @@ public class BrowserFrame extends JFrame {
         valueLabel.setForeground(new Color(26, 115, 232));
         valueLabel.setHorizontalAlignment(SwingConstants.LEFT);
 
-        JLabel subLabel = new JLabel("<html><body style='width: 170px; color:#777; font-size:10px;'>" + subtitle + "</body></html>");
+        JLabel subLabel = customSubLabel != null ? customSubLabel :
+                new JLabel("<html><body style='width: 190px; color:#777; font-size:10px;'>" + subtitle + "</body></html>");
 
         card.add(titleLabel, BorderLayout.NORTH);
         card.add(valueLabel, BorderLayout.CENTER);
@@ -422,7 +560,156 @@ public class BrowserFrame extends JFrame {
     }
 
     /**
-     * Tab 4: Error & Diagnostics.
+     * Tab 5: Lịch sử duyệt web (History) dạng bảng JTable, hỗ trợ nhấp đúp để mở lại và xóa lịch sử.
+     */
+    private JPanel createHistoryTab() {
+        JPanel panel = new JPanel(new BorderLayout(6, 6));
+        panel.setBorder(new EmptyBorder(8, 8, 8, 8));
+
+        String[] columns = {"Thời gian", "Phương thức", "Mã HTTP", "Tiêu đề trang", "URL"};
+        historyTableModel = new DefaultTableModel(columns, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+
+        historyTable = new JTable(historyTableModel);
+        historyTable.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        historyTable.setRowHeight(24);
+        historyTable.getColumnModel().getColumn(0).setPreferredWidth(140);
+        historyTable.getColumnModel().getColumn(1).setPreferredWidth(80);
+        historyTable.getColumnModel().getColumn(2).setPreferredWidth(70);
+        historyTable.getColumnModel().getColumn(3).setPreferredWidth(250);
+        historyTable.getColumnModel().getColumn(4).setPreferredWidth(450);
+
+        // Nhấp đúp vào dòng để nạp lại URL lên thanh địa chỉ và điều hướng
+        historyTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    int row = historyTable.getSelectedRow();
+                    if (row != -1) {
+                        String method = (String) historyTableModel.getValueAt(row, 1);
+                        String url = (String) historyTableModel.getValueAt(row, 4);
+                        methodComboBox.setSelectedItem(method);
+                        urlTextField.setText(url);
+                        tabbedPane.setSelectedIndex(0); // Chuyển về Web Preview
+                        onSendRequest();
+                    }
+                }
+            }
+        });
+
+        JScrollPane scrollPane = new JScrollPane(historyTable);
+
+        // Toolbar lịch sử
+        JPanel toolbar = new JPanel(new BorderLayout(8, 0));
+        JLabel tipLabel = new JLabel("💡 Nhấp đúp vào dòng lịch sử để mở lại URL. Dữ liệu được tự động lưu vào tệp history.json.");
+        tipLabel.setFont(new Font("SansSerif", Font.ITALIC, 11));
+        tipLabel.setForeground(new Color(100, 100, 100));
+
+        JPanel btnGroup = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        JButton refreshBtn = new JButton("Làm mới");
+        refreshBtn.addActionListener(e -> refreshHistoryTable());
+
+        JButton clearBtn = new JButton("Xóa tất cả lịch sử");
+        clearBtn.setForeground(new Color(176, 0, 32));
+        clearBtn.addActionListener(e -> {
+            int confirm = JOptionPane.showConfirmDialog(
+                    this,
+                    "Bạn có chắc chắn muốn xóa toàn bộ lịch sử duyệt web không?",
+                    "Xác nhận xóa lịch sử",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE
+            );
+            if (confirm == JOptionPane.YES_OPTION) {
+                historyService.clearHistory();
+                refreshHistoryTable();
+                updateNavigationButtons();
+                JOptionPane.showMessageDialog(this, "Đã xóa toàn bộ lịch sử duyệt web thành công!", "Thông báo", JOptionPane.INFORMATION_MESSAGE);
+            }
+        });
+
+        btnGroup.add(refreshBtn);
+        btnGroup.add(clearBtn);
+
+        toolbar.add(tipLabel, BorderLayout.WEST);
+        toolbar.add(btnGroup, BorderLayout.EAST);
+
+        panel.add(toolbar, BorderLayout.NORTH);
+        panel.add(scrollPane, BorderLayout.CENTER);
+
+        return panel;
+    }
+
+    /**
+     * Tab 6: Quản lý tải xuống (Downloads) hiển thị tệp, dung lượng, tiến độ và nút mở thư mục.
+     */
+    private JPanel createDownloadsTab() {
+        JPanel panel = new JPanel(new BorderLayout(6, 6));
+        panel.setBorder(new EmptyBorder(8, 8, 8, 8));
+
+        String[] columns = {"Tên tệp", "Tiến độ", "Kích thước", "Tốc độ", "Trạng thái", "Đường dẫn lưu"};
+        downloadsTableModel = new DefaultTableModel(columns, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+
+        downloadsTable = new JTable(downloadsTableModel);
+        downloadsTable.setFont(new Font("SansSerif", Font.PLAIN, 12));
+        downloadsTable.setRowHeight(24);
+        downloadsTable.getColumnModel().getColumn(0).setPreferredWidth(180);
+        downloadsTable.getColumnModel().getColumn(1).setPreferredWidth(100);
+        downloadsTable.getColumnModel().getColumn(2).setPreferredWidth(110);
+        downloadsTable.getColumnModel().getColumn(3).setPreferredWidth(90);
+        downloadsTable.getColumnModel().getColumn(4).setPreferredWidth(90);
+        downloadsTable.getColumnModel().getColumn(5).setPreferredWidth(350);
+
+        JScrollPane scrollPane = new JScrollPane(downloadsTable);
+
+        // Toolbar tải xuống
+        JPanel toolbar = new JPanel(new BorderLayout(8, 0));
+        JLabel tipLabel = new JLabel("💡 Chọn tệp và bấm 'Mở thư mục' để xem tệp đã tải về máy.");
+        tipLabel.setFont(new Font("SansSerif", Font.ITALIC, 11));
+        tipLabel.setForeground(new Color(100, 100, 100));
+
+        JPanel btnGroup = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        JButton openFolderBtn = new JButton("Mở thư mục tệp");
+        openFolderBtn.addActionListener(e -> {
+            int row = downloadsTable.getSelectedRow();
+            if (row != -1) {
+                List<DownloadItem> downloads = downloadService.getDownloads();
+                if (row < downloads.size()) {
+                    openFileLocation(downloads.get(row).getDestinationPath());
+                }
+            } else {
+                JOptionPane.showMessageDialog(this, "Vui lòng chọn một tệp trong danh sách để mở thư mục.", "Thông báo", JOptionPane.INFORMATION_MESSAGE);
+            }
+        });
+
+        JButton clearBtn = new JButton("Xóa danh sách tải");
+        clearBtn.addActionListener(e -> {
+            downloadService.clearDownloads();
+            refreshDownloadsTable();
+        });
+
+        btnGroup.add(openFolderBtn);
+        btnGroup.add(clearBtn);
+
+        toolbar.add(tipLabel, BorderLayout.WEST);
+        toolbar.add(btnGroup, BorderLayout.EAST);
+
+        panel.add(toolbar, BorderLayout.NORTH);
+        panel.add(scrollPane, BorderLayout.CENTER);
+
+        return panel;
+    }
+
+    /**
+     * Tab 7: Error & Diagnostics.
      */
     private JPanel createDiagnosticsTab() {
         JPanel panel = new JPanel(new BorderLayout(6, 6));
@@ -447,17 +734,71 @@ public class BrowserFrame extends JFrame {
         String method = (String) methodComboBox.getSelectedItem();
         boolean isPost = "POST".equalsIgnoreCase(method);
 
-        // Vô hiệu hóa hoặc kích hoạt panel POST
         postPanel.setVisible(isPost);
         postBodyTextArea.setEnabled(isPost);
 
         if ("HEAD".equalsIgnoreCase(method)) {
-            // Khi chọn HEAD: Không thống kê HTML
             statsStatusNotice.setText("Phương thức HEAD chỉ nhận HTTP Headers, không có nội dung Body hay thống kê HTML.");
         }
 
         revalidate();
         repaint();
+    }
+
+    /**
+     * Xử lý khi nhấn nút Back (◀).
+     */
+    private void onBack() {
+        if (historyService.canGoBack()) {
+            isNavigatingHistory = true;
+            String targetUrl = historyService.goBack(currentActiveUrl);
+            urlTextField.setText(targetUrl);
+            updateNavigationButtons();
+            onSendRequest();
+        }
+    }
+
+    /**
+     * Xử lý khi nhấn nút Forward (▶).
+     */
+    private void onForward() {
+        if (historyService.canGoForward()) {
+            isNavigatingHistory = true;
+            String targetUrl = historyService.goForward(currentActiveUrl);
+            urlTextField.setText(targetUrl);
+            updateNavigationButtons();
+            onSendRequest();
+        }
+    }
+
+    /**
+     * Xử lý khi nhấn nút Reload (🔄).
+     */
+    private void onReload() {
+        String targetUrl = urlTextField.getText();
+        if (targetUrl != null && !targetUrl.isBlank()) {
+            onSendRequest();
+        }
+    }
+
+    /**
+     * Mở trang web mẫu tích hợp sẵn để kiểm thử duyệt web và tải file.
+     */
+    private void onOpenDemoPage() {
+        if (demoServer != null) {
+            urlTextField.setText(demoServer.getDemoUrl());
+            methodComboBox.setSelectedItem("GET");
+            tabbedPane.setSelectedIndex(0); // Chuyển sang Web Preview
+            onSendRequest();
+        }
+    }
+
+    /**
+     * Cập nhật trạng thái kích hoạt của nút Back và Forward.
+     */
+    private void updateNavigationButtons() {
+        backButton.setEnabled(historyService.canGoBack());
+        forwardButton.setEnabled(historyService.canGoForward());
     }
 
     /**
@@ -477,15 +818,23 @@ public class BrowserFrame extends JFrame {
         if (validationError != null) {
             showErrorAlert(validationError);
             errorDetailsTextArea.setText("[LỖI URL KHÔNG HỢP LỆ]\n" + validationError);
-            tabbedPane.setSelectedComponent(tabbedPane.getComponentAt(3)); // Chuyển sang Tab Diagnostics
+            tabbedPane.setSelectedIndex(6); // Chuyển sang Tab Diagnostics
+            isNavigatingHistory = false;
             return;
         }
 
-        // 3. Xóa cảnh báo cũ và bắt đầu trạng thái Loading
+        // 3. Quản lý ngăn xếp điều hướng (nếu người dùng nhập mới hoặc click liên kết)
+        if (!isNavigatingHistory) {
+            historyService.recordNavigation(normalizedUrl, currentActiveUrl);
+        }
+        isNavigatingHistory = false;
+        updateNavigationButtons();
+
+        // 4. Xóa cảnh báo cũ và bắt đầu trạng thái Loading
         clearAlert();
         setLoading(true);
 
-        // 4. Chạy tác vụ gửi HTTP trên nền bằng SwingWorker để giao diện không bị treo
+        // 5. Chạy tác vụ gửi HTTP trên nền bằng SwingWorker
         SwingWorker<HttpResponseData, Void> worker = new SwingWorker<>() {
             @Override
             protected HttpResponseData doInBackground() {
@@ -502,6 +851,7 @@ public class BrowserFrame extends JFrame {
                     errorDetailsTextArea.setText("Stack Trace:\n" + ex);
                 } finally {
                     setLoading(false);
+                    updateNavigationButtons();
                 }
             }
         };
@@ -514,6 +864,9 @@ public class BrowserFrame extends JFrame {
      */
     private void displayResponse(HttpResponseData data) {
         clearResults();
+
+        // Cập nhật URL hiện tại
+        currentActiveUrl = data.getUrl();
 
         // 1. Cập nhật thời gian phản hồi
         latencyLabel.setText("⏱ Latency: " + data.getExecutionTimeMs() + " ms");
@@ -529,11 +882,23 @@ public class BrowserFrame extends JFrame {
                     "Method: " + data.getMethod() + "\n" +
                     "Thời gian chạy: " + data.getExecutionTimeMs() + " ms\n" +
                     "Nguyên nhân: " + data.getErrorMessage());
-            tabbedPane.setSelectedIndex(3); // Chuyển sang tab Diagnostics
+            if (webBrowserPanel != null) {
+                webBrowserPanel.showNotice(
+                        "⚠️ Lỗi kết nối mạng",
+                        "Không thể kết nối đến URL: <code>" + data.getUrl() + "</code><br>" +
+                                "Nguyên nhân: <b>" + data.getErrorMessage() + "</b>",
+                        "#d93025"
+                );
+            }
+            tabbedPane.setSelectedIndex(6); // Chuyển sang tab Diagnostics
             return;
         }
 
-        // 3. Hiển thị Status Code
+        // 3. Lưu lịch sử duyệt web
+        historyService.recordVisit(data.getUrl(), data.getMethod(), data.getStatusCode(), data.getPageTitle());
+        refreshHistoryTable();
+
+        // 4. Hiển thị Status Code
         int code = data.getStatusCode();
         statusBadgeLabel.setText("Status: " + code + " " + data.getStatusText());
         if (code >= 200 && code < 300) {
@@ -546,7 +911,7 @@ public class BrowserFrame extends JFrame {
             statusBadgeLabel.setForeground(new Color(220, 53, 69)); // Đỏ
         }
 
-        // 4. Hiển thị kích thước Body
+        // 5. Hiển thị kích thước Body
         if ("HEAD".equalsIgnoreCase(data.getMethod())) {
             sizeLabel.setText("Length: N/A (HEAD)");
         } else {
@@ -554,7 +919,10 @@ public class BrowserFrame extends JFrame {
             sizeLabel.setText("Length: " + nf.format(data.getBody().length()) + " chars");
         }
 
-        // 5. Hiển thị Response Body
+        // 6. Cập nhật Web Preview Tab (HTML Render)
+        updateWebPreviewTab(data);
+
+        // 7. Hiển thị Response Body
         if ("HEAD".equalsIgnoreCase(data.getMethod())) {
             responseBodyTextArea.setText("[Phương thức HEAD không trả về Response Body. Xem các HTTP Headers trong tab 'Response Headers']");
         } else if (data.getBody().isEmpty()) {
@@ -564,7 +932,7 @@ public class BrowserFrame extends JFrame {
             responseBodyTextArea.setCaretPosition(0);
         }
 
-        // 6. Hiển thị Response Headers
+        // 8. Hiển thị Response Headers
         headersTableModel.setRowCount(0);
         for (Map.Entry<String, List<String>> entry : data.getHeaders().entrySet()) {
             String key = entry.getKey() != null ? entry.getKey() : "(Status Line)";
@@ -572,12 +940,193 @@ public class BrowserFrame extends JFrame {
             headersTableModel.addRow(new Object[]{key, value});
         }
 
-        // 7. Hiển thị Thống kê HTML
+        // 9. Hiển thị Thống kê HTML
         updateHtmlStatsTab(data);
 
-        // 8. Nếu là mã lỗi HTTP 4xx hoặc 5xx, hiển thị cảnh báo nhẹ
+        // 10. Nếu là mã lỗi HTTP 4xx hoặc 5xx, hiển thị cảnh báo nhẹ
         if (code >= 400) {
             showErrorAlert("Máy chủ phản hồi mã lỗi HTTP: " + code + " (" + data.getStatusText() + ")");
+        }
+
+        // 11. Tự động nhận diện tài nguyên tệp tin tải về (File Download Detection)
+        if (DownloadService.isDownloadable(data)) {
+            SwingUtilities.invokeLater(() -> {
+                int confirm = JOptionPane.showConfirmDialog(
+                        this,
+                        "Phát hiện tài nguyên tệp tin (Content-Type: " + data.getContentType() + ").\n" +
+                                "Bạn có muốn tải tệp này về máy tính không?",
+                        "Tải tệp tin",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.QUESTION_MESSAGE
+                );
+                if (confirm == JOptionPane.YES_OPTION) {
+                    String cd = data.getHeaders().getOrDefault("content-disposition",
+                                    data.getHeaders().getOrDefault("Content-Disposition", Collections.emptyList()))
+                            .stream().findFirst().orElse("");
+                    promptAndStartDownload(data.getUrl(), cd, data.getContentType());
+                }
+            });
+        }
+    }
+
+    /**
+     * Xử lý khi người dùng chủ động nhấn nút "⬇ Tải về" trên thanh công cụ.
+     */
+    private void onDownloadCurrentUrl() {
+        String rawUrl = urlTextField.getText();
+        String normalizedUrl = UrlValidator.normalizeUrl(rawUrl);
+        if (!UrlValidator.isValidUrl(normalizedUrl)) {
+            showErrorAlert("URL không hợp lệ để tải tệp tin: " + rawUrl);
+            return;
+        }
+        promptAndStartDownload(normalizedUrl, null, null);
+    }
+
+    /**
+     * Mở JFileChooser để người dùng chọn vị trí lưu và bắt đầu tiến trình tải tệp tin.
+     */
+    private void promptAndStartDownload(String fileUrl, String contentDisposition, String contentType) {
+        String suggestedFileName = DownloadService.extractFileName(fileUrl, contentDisposition, contentType);
+
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle("Chọn thư mục lưu tệp tải về");
+        fileChooser.setSelectedFile(new File(suggestedFileName));
+
+        int userSelection = fileChooser.showSaveDialog(this);
+        if (userSelection == JFileChooser.APPROVE_OPTION) {
+            Path destinationPath = fileChooser.getSelectedFile().toPath();
+            tabbedPane.setSelectedIndex(5); // Chuyển sang Tab Downloads
+
+            requestService.downloadFile(fileUrl, destinationPath, new DownloadListener() {
+                @Override
+                public void onProgress(DownloadItem item) {
+                    SwingUtilities.invokeLater(() -> refreshDownloadsTable());
+                }
+
+                @Override
+                public void onCompleted(DownloadItem item) {
+                    SwingUtilities.invokeLater(() -> {
+                        refreshDownloadsTable();
+                        int openChoice = JOptionPane.showConfirmDialog(
+                                BrowserFrame.this,
+                                "Tệp đã được tải về hoàn tất:\n" + item.getFileName() +
+                                        "\n\nBạn có muốn mở thư mục chứa tệp này ngay không?",
+                                "Tải về thành công",
+                                JOptionPane.YES_NO_OPTION,
+                                JOptionPane.INFORMATION_MESSAGE
+                        );
+                        if (openChoice == JOptionPane.YES_OPTION) {
+                            openFileLocation(item.getDestinationPath());
+                        }
+                    });
+                }
+
+                @Override
+                public void onFailed(DownloadItem item, Exception e) {
+                    SwingUtilities.invokeLater(() -> {
+                        refreshDownloadsTable();
+                        showErrorAlert("Lỗi trong quá trình tải tệp: " + e.getMessage());
+                    });
+                }
+            });
+
+            refreshDownloadsTable();
+        }
+    }
+
+    /**
+     * Mở thư mục chứa tệp tin trên máy tính người dùng.
+     */
+    private void openFileLocation(Path path) {
+        try {
+            if (path != null && Desktop.isDesktopSupported()) {
+                Path folder = path.getParent() != null ? path.getParent() : path;
+                Desktop.getDesktop().open(folder.toFile());
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Không thể mở thư mục: " + ex.getMessage(), "Lỗi", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /**
+     * Làm mới dữ liệu hiển thị trong bảng Lịch sử (History).
+     */
+    private void refreshHistoryTable() {
+        if (historyTableModel == null) return;
+        historyTableModel.setRowCount(0);
+        for (HistoryItem item : historyService.getHistory()) {
+            historyTableModel.addRow(new Object[]{
+                    item.getTimestamp(),
+                    item.getMethod(),
+                    item.getStatusCode() > 0 ? item.getStatusCode() : "N/A",
+                    item.getTitle(),
+                    item.getUrl()
+            });
+        }
+    }
+
+    /**
+     * Làm mới dữ liệu hiển thị trong bảng Tải xuống (Downloads).
+     */
+    private void refreshDownloadsTable() {
+        if (downloadsTableModel == null) return;
+        downloadsTableModel.setRowCount(0);
+        for (DownloadItem item : downloadService.getDownloads()) {
+            String sizeStr = item.getTotalBytes() > 0 ?
+                    DownloadItem.formatBytes(item.getDownloadedBytes()) + " / " + DownloadItem.formatBytes(item.getTotalBytes()) :
+                    DownloadItem.formatBytes(item.getDownloadedBytes());
+
+            downloadsTableModel.addRow(new Object[]{
+                    item.getFileName(),
+                    item.getProgress() + "%",
+                    sizeStr,
+                    item.getSpeedText(),
+                    item.getStatus().getDisplayName(),
+                    item.getDestinationPath().toString()
+            });
+        }
+    }
+
+    /**
+     * Cập nhật nội dung cho Tab Web Preview (JavaFX WebView).
+     */
+    private void updateWebPreviewTab(HttpResponseData data) {
+        if ("HEAD".equalsIgnoreCase(data.getMethod())) {
+            webBrowserPanel.showNotice(
+                    "ℹ️ Phương thức HEAD",
+                    "Phương thức HEAD chỉ nhận HTTP Headers từ máy chủ, không tải nội dung Response Body.<br>" +
+                            "Vui lòng xem các thông số Header trong tab <b>Response Headers</b>.",
+                    "#0d47a1"
+            );
+            return;
+        }
+
+        if (!data.isHtml()) {
+            String typeStr = data.getContentType().isBlank() ? "Không xác định" : data.getContentType();
+            webBrowserPanel.showNotice(
+                    "ℹ️ Phản hồi không phải là HTML",
+                    "Content-Type nhận được: <code>" + typeStr + "</code>.<br>" +
+                            "Để xem nội dung dữ liệu (ví dụ JSON, văn bản thuần, hình ảnh), vui lòng chuyển sang tab <b>Response Body</b> hoặc sử dụng tính năng <b>Tải xuống (Downloads)</b>.",
+                    "#e65100"
+            );
+            return;
+        }
+
+        if (data.getBody().isBlank()) {
+            webBrowserPanel.showNotice(
+                    "ℹ️ Phản hồi HTML có nội dung rỗng",
+                    "Máy chủ đã phản hồi mã trạng thái <code>" + data.getStatusCode() + "</code> nhưng phần thân HTML rỗng.",
+                    "#5f6368"
+            );
+            return;
+        }
+
+        if ("POST".equalsIgnoreCase(data.getMethod())) {
+            // Chế độ 2: POST request - Nạp trực tiếp chuỗi HTML trả về từ kết quả POST
+            webBrowserPanel.loadContent(data.getBody());
+        } else {
+            // Chế độ 1: GET request - Tải trực tiếp URL qua WebEngine để WebKit nạp đầy đủ CSS, JS, ảnh
+            webBrowserPanel.loadUrl(data.getUrl());
         }
     }
 
@@ -613,6 +1162,14 @@ public class BrowserFrame extends JFrame {
             statsDivValue.setText(nf.format(stats.getDivCount()));
             statsSpanValue.setText(nf.format(stats.getSpanCount()));
             statsImgValue.setText(nf.format(stats.getImgCount()));
+
+            if (stats.getCustomImagCount() > 0) {
+                statsImgSubLabel.setText("<html><body style='width: 190px; color:#2e7d32; font-size:10px;'>" +
+                        "Gồm <b>" + stats.getStandardImgCount() + "</b> thẻ &lt;img&gt; và <b>" + stats.getCustomImagCount() + "</b> thẻ &lt;imag&gt;</body></html>");
+            } else {
+                statsImgSubLabel.setText("<html><body style='width: 190px; color:#777; font-size:10px;'>" +
+                        "Số lượng hình ảnh (chuẩn W3C &lt;img&gt; và đề bài &lt;imag&gt;)</body></html>");
+            }
         } else {
             statsStatusNotice.setText("Không thể phân tích HTML.");
             resetStatsValues();
@@ -625,6 +1182,7 @@ public class BrowserFrame extends JFrame {
         statsDivValue.setText("-");
         statsSpanValue.setText("-");
         statsImgValue.setText("-");
+        statsImgSubLabel.setText("<html><body style='width: 190px; color:#777; font-size:10px;'>Bao gồm cả thẻ &lt;img&gt; chuẩn và &lt;imag&gt;</body></html>");
     }
 
     private boolean isImportantHeader(String header) {
@@ -641,6 +1199,13 @@ public class BrowserFrame extends JFrame {
         sendButton.setEnabled(!loading);
         methodComboBox.setEnabled(!loading);
         urlTextField.setEnabled(!loading);
+        downloadQuickButton.setEnabled(!loading);
+        backButton.setEnabled(!loading && historyService.canGoBack());
+        forwardButton.setEnabled(!loading && historyService.canGoForward());
+        reloadButton.setEnabled(!loading);
+        if (demoButton != null) {
+            demoButton.setEnabled(!loading);
+        }
         postBodyTextArea.setEnabled(!loading && "POST".equalsIgnoreCase((String) methodComboBox.getSelectedItem()));
         progressBar.setVisible(loading);
         progressBar.setIndeterminate(loading);
@@ -652,6 +1217,9 @@ public class BrowserFrame extends JFrame {
     }
 
     private void clearResults() {
+        if (webBrowserPanel != null) {
+            webBrowserPanel.clear();
+        }
         responseBodyTextArea.setText("");
         headersTableModel.setRowCount(0);
         resetStatsValues();

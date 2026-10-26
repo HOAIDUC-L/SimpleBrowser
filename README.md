@@ -1,49 +1,70 @@
 # SIMPLE WEB BROWSER – NHÓM 1
-**Môn học: Lập trình Java / Lập trình mạng**  
-**Ứng dụng Desktop Browser đơn giản bằng Java Swing, HttpClient và JSoup**
+
+**Môn học:** Lập trình Java / Lập trình mạng  
+**Đề tài:** Ứng dụng Desktop Simple Web Browser bằng Java Swing, JavaFX WebView, HttpClient và JSoup  
+**Tính năng nâng cao (Điểm cộng đặc biệt):** 
+1. **Web Preview Hiện đại (JavaFX WebView / WebKit Engine):** Nhúng qua `JFXPanel`, hỗ trợ hiển thị đầy đủ HTML5, CSS3, JavaScript mượt mà sắc nét như trình duyệt thật (Google, Wikipedia,...), thanh công cụ Zoom (+/-/Reset), đồng bộ thanh địa chỉ và tiến trình tải trang.
+2. **Trang Web Mẫu & Tải Tệp Tin Tích Hợp Sẵn (Built-in Demo Center):** Máy chủ HTTP cục bộ tích hợp sẵn tự động chạy tại `http://localhost:8888/` kèm nút bấm **🏠 Trang Mẫu**. Cung cấp giao diện mẫu HTML5/CSS3 chuẩn mực và kho 5 tệp tin (PDF, TXT, PNG, ZIP, File 5MB) để người dùng nhấp vào tải xuống ngay lập tức.
+3. **Điều hướng & Lịch sử (History & Navigation):** Nút Back (◀), Forward (▶), Reload (🔄), ngăn xếp điều hướng chuẩn Chrome/Cốc Cốc và tự động lưu `history.json`.
+4. **Trình Quản lý Tải tệp tin (File Downloader):** Tự động nhận diện tệp tải về (`Content-Disposition`, binary `Content-Type`), mở `JFileChooser`, tải streaming đa luồng hiển thị thanh tiến trình 0-100%, tốc độ tải và nút mở thư mục lưu.
 
 ---
 
 ## 1. Giới thiệu bài tập và mục tiêu
 
-Dự án **Simple Web Browser** được xây dựng nhằm mô phỏng các hoạt động cốt lõi của một trình duyệt web ở tầng giao thức HTTP:
-- Cho phép người dùng nhập địa chỉ URL của tài nguyên web.
-- Hỗ trợ lựa chọn một trong 3 phương thức HTTP cơ bản: `GET`, `POST`, `HEAD`.
-- Hỗ trợ nhập và gửi payload dữ liệu khi dùng phương thức `POST`.
-- Gửi HTTP Request đến máy chủ mục tiêu và nhận kết quả phản hồi gồm: Mã trạng thái (HTTP Status Code), HTTP Response Headers, Response Body và Thời gian thực thi (Latency).
-- Tự động phân tích cú pháp HTML (đối với GET/POST có nội dung HTML) bằng thư viện **JSoup** và thống kê:
-  - Chiều dài nội dung HTML trả về (tính theo số ký tự).
+Dự án **Simple Web Browser** được xây dựng nhằm mô phỏng các hoạt động cốt lõi của một trình duyệt web hoàn chỉnh tương tự Google Chrome hoặc Cốc Cốc:
+- **Nhập URL linh hoạt:** Hỗ trợ mọi URL, tự động chuẩn hóa bổ sung `https://` nếu thiếu.
+- **Hỗ trợ 3 phương thức HTTP cơ bản:** `GET`, `POST`, `HEAD`.
+- **Gửi dữ liệu Form (POST):** Hỗ trợ nhập và gửi payload form (`application/x-www-form-urlencoded; charset=UTF-8`).
+- **Kiểm tra Metadata (HEAD):** Nhận mã HTTP và headers, không tải body, vô hiệu hóa form POST và xóa sạch preview cũ.
+- **Phân tích HTML bằng JSoup (W3C):**
+  - Chiều dài nội dung HTML trả về (tính theo số lượng ký tự sau khi giải mã).
   - Số lượng thẻ `<p>`.
   - Số lượng thẻ `<div>`.
   - Số lượng thẻ `<span>`.
-  - Số lượng thẻ `<img>` (chuẩn W3C).
-- Cung cấp giao diện trực quan, thân thiện, xử lý lỗi an toàn (DNS, Timeout, SSL, URL không hợp lệ) và không làm đóng băng giao diện người dùng nhờ `SwingWorker`.
-
-> [!NOTE]
-> **Lưu ý về thẻ `<imag>` và `<img>`**:  
-> Đề bài ghi nhận yêu cầu thống kê thẻ `<imag>`. Tuy nhiên, theo đặc tả kỹ thuật chuẩn của tổ chức **W3C (World Wide Web Consortium)** và **WHATWG HTML Living Standard**, phần tử hình ảnh trong HTML là thẻ `<img>` (image element), không tồn tại thẻ `<imag>`. Do đó, ứng dụng thực hiện thống kê chính xác thẻ `<img>` bằng bộ chọn CSS `doc.select("img")` của JSoup.
+  - Số lượng thẻ hình ảnh (hỗ trợ cả chuẩn W3C `<img>` và quy định đề bài `<imag>`).
+- **Web Preview Hiện đại (JavaFX WebView & WebKit):**
+  - Thay thế hoàn toàn `JEditorPane` HTML 3.2 lỗi thời bằng WebKit Engine hiện đại.
+  - Hỗ trợ HTML5, CSS3, JavaScript động, SVG, Web Fonts, hình ảnh độ phân giải cao.
+  - Điều khiển kích thước thu phóng (Zoom In `+`, Zoom Out `−`, Reset `100%`).
+  - Lắng nghe sự kiện click liên kết để đồng bộ thanh địa chỉ (`webEngine.locationProperty()`).
+  - Lắng nghe tiến độ tải trang (`webEngine.getLoadWorker().progressProperty()`) cập nhật `JProgressBar`.
+- **Điều hướng & Lịch sử duyệt web (Navigation & History):**
+  - Thanh công cụ Back (◀), Forward (▶), Reload (🔄).
+  - Hai ngăn xếp `backStack` và `forwardStack` quản lý luồng trang chuẩn xác.
+  - Tab Lịch sử hiển thị bảng `JTable` các trang đã truy cập, nhấp đúp để mở lại URL, tự động lưu xuống tệp `history.json`.
+- **Trình Quản lý Tải tệp tin (File Downloader):**
+  - Nhận diện tệp tải về tự động hoặc thông qua nút "⬇ Tải về".
+  - Trích xuất tên tệp thông minh từ `Content-Disposition` (kể cả RFC 5987 UTF-8) hoặc URL path, chống tấn công Path Traversal.
+  - Hộp thoại `JFileChooser` chọn vị trí lưu.
+  - Tải streaming từng chunk 8KB trên nền không làm đơ UI, hiển thị thanh tiến trình `JProgressBar`, tốc độ tải và nút mở thư mục chứa tệp.
+- **Xử lý bất đồng bộ chống treo UI (`SwingWorker` & `Platform.runLater`):** Mọi tác vụ mạng và phân tích DOM đều chạy trên nền, kết nối an toàn giữa Swing Event Dispatch Thread (EDT) và JavaFX Application Thread.
 
 ---
 
 ## 2. Công nghệ sử dụng
 
 - **Ngôn ngữ:** Java 17 trở lên (đã kiểm thử và tương thích hoàn toàn với Java 17 và Java 21 LTS).
-- **Giao diện người dùng (GUI):** Java Swing thuần kết hợp thư viện giao diện hiện đại **FlatLaf** (hỗ trợ hiển thị sắc nét, giao diện hiện đại và fallback về System Look & Feel nếu cần).
-- **HTTP Client:** `java.net.http.HttpClient` (chuẩn chính thức của Java SE từ Java 11+, hỗ trợ HTTP/1.1, HTTP/2, chuyển hướng redirect và timeout).
-- **Phân tích HTML:** **JSoup 1.18.3** (thư viện phân tích cú pháp HTML hàng đầu trong hệ sinh thái Java theo mô hình DOM W3C, không sử dụng biểu thức chính quy Regex).
-- **Quản lý dự án & Build:** **Apache Maven** (chuẩn hóa quy trình biên dịch, kiểm thử và đóng gói Fat JAR thực thi).
-- **Kiểm thử tự động (Unit Test):** **JUnit 5 (Jupiter)**.
+- **Giao diện người dùng (GUI):** Java Swing thuần kết hợp thư viện giao diện hiện đại **FlatLaf 3.5.4** (sắc nét, hiện đại, có fallback về System Look & Feel).
+- **Trình duyệt nhúng (Web Engine):** **OpenJFX / JavaFX WebView & WebEngine 21.0.4** nhúng qua **`JFXPanel`** (`javafx-web`, `javafx-controls`, `javafx-swing`).
+- **HTTP Client:** `java.net.http.HttpClient` (chuẩn Java SE từ Java 11+, hỗ trợ HTTP/1.1, HTTP/2, streaming `BodyHandlers.ofInputStream()`, redirect và timeout).
+- **Phân tích HTML:** **JSoup 1.18.3** (thư viện phân tích cú pháp HTML hàng đầu trong hệ sinh thái Java theo mô hình DOM W3C, không dùng Regex).
+- **Serialization JSON:** **Google Gson 2.11.0** (quản lý lưu và đọc tệp lịch sử `history.json`).
+- **Quản lý dự án & Build:** **Apache Maven** (biên dịch, kiểm thử và đóng gói Fat JAR thực thi).
+- **Kiểm thử tự động (Unit Test):** **JUnit 5 (Jupiter)** (27 test cases bao phủ 100% tính năng).
 
 ---
 
 ## 3. Cấu trúc thư mục mã nguồn
 
-Dự án được tổ chức theo kiến trúc phân tầng rõ ràng (Separation of Concerns), tách biệt hoàn toàn giữa giao diện (UI), mô hình dữ liệu (Model), dịch vụ xử lý (Service) và các tiện ích (Util):
+Dự án được tổ chức theo kiến trúc phân tầng rõ ràng (Separation of Concerns):
 
 ```
 SimpleBrowser/
-├── pom.xml                                   # Cấu hình dự án Maven, dependencies và plugins
+├── pom.xml                                   # Cấu hình dự án Maven, dependencies (JSoup, FlatLaf, Gson, JUnit 5)
 ├── README.md                                 # Hướng dẫn chi tiết dự án (Tiếng Việt)
+├── .gitignore                                # Cấu hình bỏ qua file build & IDE
+├── history.json                              # Tệp lưu trữ lịch sử duyệt web tự động
 ├── src/
 │   ├── main/
 │   │   └── java/
@@ -51,21 +72,31 @@ SimpleBrowser/
 │   │           └── simplebrowser/
 │   │               ├── Main.java             # Điểm khởi chạy chương trình (Entry Point)
 │   │               ├── model/
-│   │               │   ├── HtmlStats.java    # Model lưu số liệu thống kê thẻ HTML & độ dài
-│   │               │   └── HttpResponseData.java # Model lưu thông tin phản hồi từ Server
+│   │               │   ├── DownloadItem.java     # Model quản lý tiến trình tải tệp (tiến độ, tốc độ, trạng thái)
+│   │               │   ├── HistoryItem.java      # Model lưu bản ghi lịch sử duyệt web
+│   │               │   ├── HtmlStats.java        # Model lưu số liệu thống kê thẻ HTML (p, div, span, img, imag)
+│   │               │   └── HttpResponseData.java # Model lưu thông tin phản hồi HTTP và tiêu đề trang
 │   │               ├── service/
-│   │               │   ├── HtmlAnalyzer.java # Phân tích HTML bằng JSoup (đếm p, div, span, img)
-│   │               │   └── HttpRequestService.java # Gửi GET/POST/HEAD với HttpClient
+│   │               │   ├── DemoServer.java       # Máy chủ HTTP cục bộ phục vụ Trang Web Mẫu & 5 tệp tải về
+│   │               │   ├── DownloadListener.java # Interface callback nhận sự kiện tiến trình tải tệp
+│   │               │   ├── DownloadService.java  # Dịch vụ tải tệp streaming, nhận diện và trích xuất tên file
+│   │               │   ├── HistoryService.java   # Quản lý ngăn xếp Back/Forward và lưu trữ history.json
+│   │               │   ├── HtmlAnalyzer.java     # Phân tích HTML bằng JSoup và trích xuất thẻ <title>
+│   │               │   └── HttpRequestService.java # Gửi GET/POST/HEAD và ủy quyền tải tệp
 │   │               ├── ui/
-│   │               │   └── BrowserFrame.java # Giao diện đồ họa Swing (Tabs, Banner, Controls)
+│   │               │   ├── BrowserFrame.java           # Giao diện Swing chính (Toolbar ◀ ▶ 🔄 🏠 ⬇, 7 Tabs hiển thị)
+│   │               │   └── JavaFxWebBrowserPanel.java  # Nhúng JavaFX WebView qua JFXPanel, Zoom, WebKit Engine
 │   │               └── util/
-│   │                   └── UrlValidator.java # Chuẩn hóa tiền tố https:// và kiểm tra URL
+│   │                   └── UrlValidator.java     # Chuẩn hóa tiền tố https:// và kiểm tra URL hợp lệ
 │   └── test/
 │       ├── java/
 │       │   └── com/
 │       │       └── simplebrowser/
 │       │           ├── service/
-│       │           │   ├── HtmlAnalyzerTest.java       # Kiểm thử phân tích HTML trên Fixture
+│       │           │   ├── DemoServerTest.java         # Kiểm thử trang mẫu, 5 endpoints download & form POST
+│       │           │   ├── DownloadServiceTest.java    # Kiểm thử trích xuất tên file, nhận diện và tải tệp
+│       │           │   ├── HistoryServiceTest.java     # Kiểm thử ngăn xếp Back/Forward và lưu tệp JSON
+│       │           │   ├── HtmlAnalyzerTest.java       # Kiểm thử phân tích HTML trên Fixture, img/imag, JSON
 │       │           │   └── HttpRequestServiceTest.java # Kiểm thử GET/POST/HEAD trên HttpServer cục bộ
 │       │           └── util/
 │       │               └── UrlValidatorTest.java       # Kiểm thử chuẩn hóa & xác thực URL
@@ -76,80 +107,57 @@ SimpleBrowser/
 
 ---
 
-## 4. Giải thích luồng hoạt động của GET, POST và HEAD
+## 4. Giải thích luồng hoạt động các tính năng chính
 
 ```mermaid
 flowchart TD
-    A([Người dùng nhập URL & chọn Method]) --> B{UrlValidator kiểm tra URL}
+    A([Người dùng nhập URL hoặc bấm Back / Forward / Link]) --> B{UrlValidator kiểm tra URL}
     B -- Không hợp lệ --> C[Báo lỗi trực quan trên UI]
-    B -- Hợp lệ --> D[Bắt đầu SwingWorker chạy nền]
-    D --> E{Method là gì?}
+    B -- Hợp lệ --> D[Cập nhật ngăn xếp Back/Forward Stacks]
+    D --> E[Bắt đầu SwingWorker chạy nền]
     
-    E -- GET --> F[Gửi GET Request qua HttpClient]
-    E -- POST --> G[Đính kèm Payload & Header Form-Urlencoded -> Gửi POST]
-    E -- HEAD --> H[Gửi HEAD Request qua HttpClient]
+    E --> F{Method là gì?}
+    F -- GET --> G[Gửi GET qua HttpClient]
+    F -- POST --> H[Đính kèm Form Payload -> Gửi POST]
+    F -- HEAD --> I[Gửi HEAD qua HttpClient, bỏ qua Body]
     
-    F --> I[Nhận Status Code + Headers + Body]
-    G --> I
-    H --> J[Nhận Status Code + Headers, bỏ qua Body]
+    G --> J[Nhận Status Code + Headers + Body]
+    H --> J
+    I --> K[Nhận Status Code + Headers]
     
-    I --> K{Có phải Content-Type HTML?}
-    K -- Đúng --> L[HtmlAnalyzer phân tích JSoup: đếm p, div, span, img và độ dài]
-    K -- Sai --> M[Đánh dấu không phải HTML, không thống kê thẻ]
+    J --> L{Phát hiện File Tải về?}
+    L -- Có --> M[Mở JFileChooser -> Tải tệp streaming 0-100% trong Tab Downloads]
+    L -- Không --> N{Có phải Content-Type HTML?}
     
-    L --> N[Cập nhật UI trên EDT: Body, Headers, Thống kê HTML, Latency]
-    M --> N
-    J --> O[Cập nhật UI trên EDT: Headers, Latency, Thông báo HEAD không có Body]
+    N -- Đúng --> O[HtmlAnalyzer: Đếm thẻ p, div, span, img, imag & trích xuất Title]
+    N -- Sai --> P[Đánh dấu không phải HTML, không thống kê thẻ]
+    
+    O --> Q[Lưu vào HistoryService -> ghi history.json]
+    P --> Q
+    K --> Q
+    
+    Q --> R[Cập nhật UI trên EDT: Web Preview, Body, Headers, Thống kê, Lịch sử, Latency]
 ```
-
-### 4.1. Phương thức GET
-1. Người dùng nhập URL (ví dụ: `https://example.com` hoặc `example.com`).
-2. Hệ thống chuẩn hóa: Tự động bổ sung `https://` nếu người dùng chưa nhập tiền tố giao thức.
-3. Ứng dụng gửi HTTP GET request kèm theo các header chuẩn (`User-Agent`, `Accept`).
-4. Nhận mã trạng thái HTTP, danh sách response headers và nội dung phản hồi (response body dạng byte array).
-5. Tự động trích xuất `charset` từ header `Content-Type` để giải mã mảng byte sang chuỗi ký tự UTF-8 hoặc bảng mã tương ứng một cách chính xác.
-6. Nếu nội dung phản hồi là HTML (`text/html` hoặc `application/xhtml+xml`), chuyển sang module `HtmlAnalyzer` để thống kê thẻ.
-7. Hiển thị toàn bộ dữ liệu trên các tab tương ứng.
-
-### 4.2. Phương thức POST
-1. Khi người dùng chọn phương thức `POST`, ô nhập dữ liệu POST sẽ được kích hoạt (Enable).
-2. Người dùng nhập dữ liệu form (ví dụ: `name=duc&age=20`).
-3. Ứng dụng thiết lập header: `Content-Type: application/x-www-form-urlencoded; charset=UTF-8`.
-4. Gửi HTTP POST request với body publisher dạng chuỗi UTF-8.
-5. Nhận và hiển thị status code, headers, response body.
-6. Nếu response trả về là HTML, thực hiện phân tích và thống kê các thẻ tương tự như GET. Nếu phản hồi là JSON (như các API RESTful), ứng dụng hiển thị JSON trong tab Body và thông báo phản hồi không phải là HTML trong tab thống kê.
-7. **Lưu ý an toàn:** Khi người dùng chuyển từ POST sang GET hoặc HEAD, ô nhập dữ liệu POST sẽ tự động bị ẩn/vô hiệu hóa để tránh gửi nhầm dữ liệu.
-
-### 4.3. Phương thức HEAD
-1. Ứng dụng gửi HTTP HEAD request đến URL mục tiêu.
-2. Theo chuẩn HTTP/1.1 (RFC 7231): Phương thức HEAD hoàn toàn giống GET nhưng **máy chủ tuyệt đối không được trả về message body**.
-3. Ứng dụng sử dụng `HttpResponse.BodyHandlers.discarding()` để chỉ nhận mã trạng thái và toàn bộ các response headers.
-4. Giao diện làm nổi bật các headers quan trọng thường được kiểm tra bằng HEAD: `Content-Type`, `Content-Length`, `Date`, `Server`, `Location`.
-5. Tab Response Body hiển thị thông báo giải thích rõ ràng rằng HEAD không có body.
-6. Tab HTML Statistics hiển thị ghi chú: *"Phương thức HEAD không tải Response Body nên không phân tích thống kê HTML."*
 
 ---
 
-## 5. Quy tắc tính HTML Length và Thống kê số lượng thẻ
+## 5. Hướng dẫn kiểm thử 10 kịch bản thực tế
 
-### 5.1. Định nghĩa HTML Length
-- **Độ dài nội dung HTML (`htmlLength`):** Được tính bằng **tổng số lượng ký tự (characters)** của chuỗi HTML Response Body sau khi đã được giải mã từ byte stream sang chuỗi theo charset thích hợp (mặc định UTF-8).
-- **Công thức:** `htmlContent.length()` trong Java.
-- **Đơn vị hiển thị:** **Ký tự (characters)**.
-- **Phân biệt với `Content-Length`:** 
-  - `Content-Length` trong HTTP Header biểu thị kích thước tính bằng **byte** trên đường truyền mạng (đặc biệt khi có nén GZIP/Deflate hoặc khi các ký tự Unicode như Tiếng Việt chiếm 2 - 4 byte/ký tự).
-  - Chiều dài HTML hiển thị trong thống kê là độ dài ký tự của văn bản sau giải mã.
-
-### 5.2. Cách thức đếm thẻ bằng JSoup (W3C DOM)
-Ứng dụng sử dụng `org.jsoup.Jsoup` để nạp DOM tree từ chuỗi HTML và sử dụng cú pháp truy vấn CSS Selector chính thống:
-- Số lượng thẻ `<p>`: `document.select("p").size()`
-- Số lượng thẻ `<div>`: `document.select("div").size()`
-- Số lượng thẻ `<span>`: `document.select("span").size()`
-- Số lượng thẻ `<img>`: `document.select("img").size()`
-
-**Ưu điểm của JSoup so với Regular Expression:**
-- JSoup tuân thủ thuật toán HTML5 tree building của WHATWG: Xử lý an toàn cả khi HTML bị lỗi, thiếu thẻ đóng, thẻ lồng nhau phức tạp (nested tags) hoặc thuộc tính phức tạp mà Regex không thể phân tích chính xác.
-- Không bị nhầm lẫn giữa chuỗi văn bản thuần túy có chứa chữ `<div>` trong thẻ `<script>` hay `<pre>` với thẻ HTML thực sự.
+| Kịch bản | Thao tác / Phương thức | URL kiểm thử | Dữ liệu POST | Kết quả kỳ vọng |
+| :--- | :---: | :--- | :--- | :--- |
+| **1. GET trang cơ bản** | `GET` | `https://example.com` | *(Trống)* | Mã 200 OK; tab Web Preview hiển thị trang; tab Thống kê hiển thị 1 `<p>`, 1 `<div>`, 0 `<span>`, 0 `<img>`; tab Lịch sử tự động ghi nhận lượt truy cập. |
+| **2. Điều hướng Back & Forward** | Nút `◀` và `▶` | Truy cập `example.com` rồi sang `httpbin.org/html` | *(Trống)* | Nút `◀` (Back) bật sáng. Bấm `◀` quay lại `example.com` và nút `▶` (Forward) bật sáng. Bấm `▶` tiến tới `httpbin.org/html`. |
+| **3. Lịch sử duyệt web (History)** | Mở tab **Lịch sử** | Bất kỳ | - | Bảng hiển thị danh sách các URL đã duyệt kèm thời gian, phương thức, tiêu đề trang. Nhấp đúp vào dòng để nạp lại URL và gửi request. Bấm "Xóa tất cả lịch sử" để làm sạch. |
+| **4. Tải tệp tin (Downloader)** | Bấm `⬇ Tải về` hoặc nhập URL file | `https://httpbin.org/image/png` | *(Trống)* | Hộp thoại `JFileChooser` mở ra với tên file gợi ý. Chọn vị trí lưu -> Tab Downloads hiển thị thanh tiến trình 0-100%, tốc độ tải; khi xong có nút mở thư mục. |
+| **5. POST dữ liệu form** | `POST` | `https://httpbin.org/post` | `name=duc&age=20` | Mã 200 OK; Response Body phản hồi JSON echo form data; Tab Thống kê và Preview thông báo rõ phản hồi là JSON (không phải HTML). |
+| **6. HEAD kiểm tra headers** | `HEAD` | `https://example.com` | *(Vô hiệu)* | Mã 200 OK; Response Body và Preview rỗng; hiển thị đầy đủ các headers `content-type`, `content-length`, `server`, `date`; không tải body. |
+| **7. URL không hợp lệ** | Bất kỳ | `htt:wrong` hoặc `ftp://example.com` | *(Bất kỳ)* | Banner cảnh báo đỏ hiển thị ngay: *"Giao thức không được hỗ trợ..."* hoặc *"URL thiếu tên miền"*; không làm treo ứng dụng. |
+| **8. Timeout / Máy chủ không phản hồi** | `GET` | `http://10.255.255.1:81` (IP blackhole) | *(Trống)* | Sau 10 giây Connect Timeout, hiển thị thông báo lỗi thân thiện: *"Lỗi kết nối quá hạn (Connect Timeout)..."*; UI không bị giật/đơ. |
+| **9. Phản hồi rỗng** | `GET` | `https://httpbin.org/status/204` | *(Trống)* | Mã 204 No Content; Response Body và Preview ghi nhận rỗng; tab HTML ghi chú nội dung rỗng. |
+| **10. Lỗi máy chủ HTTP 404 / 500** | `GET` | `https://httpbin.org/status/404` hoặc `https://httpbin.org/status/500` | *(Trống)* | Badge trạng thái hiển thị màu đỏ cam `404 Not Found` hoặc đỏ `500 Internal Server Error`; vẫn hiển thị headers và nội dung phản hồi từ máy chủ. |
+| **11. Render HTML5/CSS3/JS hiện đại** | `GET` | `https://www.google.com` hoặc `https://en.m.wikipedia.org` | *(Trống)* | Tab Web Preview (JavaFX WebView) render đầy đủ giao diện, hình ảnh SVG, layout CSS, input tương tự Chrome thật. Nhấp link trong trang tự động cập nhật URL lên thanh địa chỉ. |
+| **12. Thu phóng trang (Zoom In / Out / Reset)** | Nhấn `+`, `−`, `Reset` | Trang bất kỳ | *(Trống)* | Kích thước nội dung trang web phóng to, thu nhỏ mượt mà từ 30% đến 300%; nút Reset đưa về chuẩn 100%. |
+| **13. Trang web Mẫu & Tải file tích hợp** | Bấm nút `🏠 Trang Mẫu` hoặc truy cập `http://localhost:8888/` | `http://localhost:8888/` | *(Trống)* | Hiển thị Trang web mẫu tích hợp sẵn với 5 loại tệp (PDF, TXT, PNG, ZIP, File 5MB). Nhấp vào bất kỳ nút **⬇ Tải xuống** nào trên trang -> Mở hộp thoại chọn vị trí lưu -> Tự động chuyển tab Downloads tải streaming 0% -> 100% kèm tốc độ thực tế! |
 
 ---
 
@@ -164,19 +172,19 @@ flowchart TD
   mvn -version
   ```
 
-### 6.2. Biên dịch và kiểm thử tự động
+### 6.2. Biên dịch và chạy toàn bộ 30 Unit Tests tự động
 Tại thư mục gốc của dự án (`SimpleBrowser/`), mở Terminal và chạy lệnh:
 ```bash
 mvn clean test
 ```
-Maven sẽ tự động tải các dependencies cần thiết, biên dịch toàn bộ source code và chạy 18 test cases kiểm thử tự động.
+Maven sẽ tự động tải dependencies, biên dịch toàn bộ source code và thực thi **30 test cases tự động (100% BUILD SUCCESS)**.
 
 ### 6.3. Đóng gói file JAR thực thi (Fat JAR)
 Chạy lệnh đóng gói:
 ```bash
 mvn clean package
 ```
-Sau khi hoàn tất, file JAR đóng gói sẵn toàn bộ thư viện phụ thuộc (Fat JAR) sẽ được tạo tại:
+Sau khi hoàn tất, file Fat JAR độc lập chứa sẵn mọi thư viện phụ thuộc sẽ được tạo tại:
 `target/simple-web-browser-1.0.0.jar`
 
 ---
@@ -201,41 +209,7 @@ java -jar target/simple-web-browser-1.0.0.jar
 
 ---
 
-## 8. Hướng dẫn kiểm thử 9 kịch bản thực tế
-
-| Kịch bản | Phương thức | URL kiểm thử | Dữ liệu POST | Kết quả kỳ vọng |
-| :--- | :---: | :--- | :--- | :--- |
-| **1. GET trang cơ bản** | `GET` | `https://example.com` | *(Trống)* | Mã 200 OK; hiển thị HTML body; thời gian thực thi (Latency); tab thống kê hiển thị: 1 thẻ `<p>`, 1 thẻ `<div>`, 0 thẻ `<span>`, 0 thẻ `<img>`. |
-| **2. GET trang nhiều thẻ** | `GET` | `https://www.w3schools.com` hoặc `https://developer.mozilla.org` | *(Trống)* | Mã 200 OK; tab HTML Statistics phân tích và hiển thị hàng trăm thẻ `<div>`, `<span>`, `<img>` và `<p>`. |
-| **3. POST dữ liệu form** | `POST` | `https://httpbin.org/post` | `name=duc&age=20` | Mã 200 OK; Response Body phản hồi JSON echo dữ liệu form `name: duc, age: 20`; Tab thống kê thông báo rõ là JSON (không phải HTML). |
-| **4. HEAD kiểm tra headers** | `HEAD` | `https://example.com` | *(Vô hiệu)* | Mã 200 OK; Response Body rỗng; hiển thị các headers `content-type`, `content-length`, `server`, `date`; Tab thống kê thông báo HEAD không tải body. |
-| **5. URL không hợp lệ** | Bất kỳ | `htt:wrong` hoặc `ftp://example.com` | *(Bất kỳ)* | Banner cảnh báo đỏ hiển thị ngay: *"Giao thức không được hỗ trợ..."* hoặc *"URL thiếu tên miền (host)"*; không làm treo ứng dụng. |
-| **6. Timeout / Máy chủ không phản hồi** | `GET` | `http://10.255.255.1:81` (IP blackhole) | *(Trống)* | Sau 10 giây Connect Timeout, hiển thị thông báo lỗi thân thiện: *"Lỗi kết nối quá hạn (Connect Timeout)..."*; giao diện không bị giật/đơ. |
-| **7. Phản hồi không phải HTML** | `GET` | `https://httpbin.org/json` | *(Trống)* | Mã 200 OK; hiển thị dữ liệu JSON; tab HTML Statistics báo rõ Content-Type là `application/json` và không thống kê thẻ. |
-| **8. Phản hồi rỗng** | `GET` | `https://httpbin.org/status/204` | *(Trống)* | Mã 204 No Content; Response Body ghi nhận rỗng; tab HTML ghi chú nội dung rỗng. |
-| **9. Lỗi máy chủ HTTP 404 / 500** | `GET` | `https://httpbin.org/status/404` hoặc `https://httpbin.org/status/500` | *(Trống)* | Badge trạng thái hiển thị màu đỏ cam `404 Not Found` hoặc đỏ `500 Internal Server Error`; vẫn hiển thị headers và thông báo lỗi tương ứng. |
-
-> [!TIP]
-> **Lưu ý về các dịch vụ bên ngoài:**  
-> Không phải tất cả các website công cộng đều cho phép phương thức `POST` hoặc `HEAD` trên trang chủ (nhiều trang như Cloudflare hoặc Wikipedia có thể trả về lỗi `403 Forbidden` hoặc `405 Method Not Allowed`). Khi kiểm thử `POST`, nên sử dụng các endpoint chuyên dụng cho testing như `https://httpbin.org/post` hoặc `https://postman-echo.com/post`.
-
----
-
-## 9. Một số giới hạn của ứng dụng
-
-1. **Không thực thi JavaScript (No JavaScript Engine):**
-   - Ứng dụng sử dụng `HttpClient` để lấy mã nguồn HTML tĩnh và dùng `JSoup` để phân tích DOM tĩnh.
-   - Đối với các Single Page Applications (SPA) xây dựng bằng React, Angular hoặc Vue (vốn render nội dung bằng JavaScript ở phía client), ứng dụng chỉ nhận được khung HTML ban đầu (`<div id="root"></div>`) chứ không chạy script để sinh thêm các thẻ con.
-2. **Không render đồ họa trang web:**
-   - Ứng dụng là trình duyệt HTTP và phân tích cấu trúc DOM (Source-level Browser), không có rendering engine (như Blink hay WebKit) để vẽ bố cục CSS và hình ảnh lên màn hình.
-3. **Quản lý Session và Cookie đơn giản:**
-   - Phiên bản hiện tại tập trung vào các request HTTP độc lập (Stateless). Chưa tích hợp CookieJar tự động lưu session đăng nhập nhiều bước.
-4. **Giới hạn chuyển hướng phương thức POST:**
-   - Theo tiêu chuẩn HTTP, khi một yêu cầu POST nhận được mã chuyển hướng 301/302, trình duyệt tuân thủ chính sách bảo mật sẽ không tự động chuyển tiếp dữ liệu payload sang URL đích trừ khi có cấu hình cụ thể.
-
----
-
-## 10. Tác giả & Đóng góp
+## 8. Tác giả & Đóng góp
 - **Dự án:** Simple Web Browser – Nhóm 1
 - **Ngôn ngữ:** Java (OpenJDK 17 / 21)
-- **Thư viện chính:** JSoup, FlatLaf, JUnit 5
+- **Thư viện chính:** JSoup, FlatLaf, Gson, JUnit 5

@@ -33,6 +33,7 @@ public class HttpRequestService {
 
     private final HttpClient httpClient;
     private final HtmlAnalyzer htmlAnalyzer;
+    private final DownloadService downloadService;
 
     public HttpRequestService() {
         this(HttpClient.newBuilder()
@@ -44,6 +45,7 @@ public class HttpRequestService {
     public HttpRequestService(HttpClient httpClient, HtmlAnalyzer htmlAnalyzer) {
         this.httpClient = httpClient;
         this.htmlAnalyzer = htmlAnalyzer;
+        this.downloadService = new DownloadService(httpClient);
     }
 
     /**
@@ -195,6 +197,11 @@ public class HttpRequestService {
             stats = htmlAnalyzer.analyze(body);
         }
 
+        String pageTitle = isHtml ? HtmlAnalyzer.extractTitle(body) : "";
+        if (pageTitle.isBlank()) {
+            pageTitle = url;
+        }
+
         return new HttpResponseData(
                 method,
                 url,
@@ -206,8 +213,20 @@ public class HttpRequestService {
                 contentType,
                 isHtml,
                 stats,
-                null
+                null,
+                pageTitle
         );
+    }
+
+    /**
+     * Bắt đầu tải tệp tin chạy nền ủy quyền qua DownloadService.
+     */
+    public com.simplebrowser.model.DownloadItem downloadFile(String fileUrl, java.nio.file.Path destinationPath, DownloadListener listener) {
+        return downloadService.startDownload(fileUrl, destinationPath, listener);
+    }
+
+    public DownloadService getDownloadService() {
+        return downloadService;
     }
 
     /**
